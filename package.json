@@ -1,0 +1,26 @@
+{
+  "name": "dawnhalo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dawnhalo — daily affirmation & oracle card app (prototype)",
+  "scripts": {
+    "dev": "concurrently -n web,api -c magenta,yellow \"npm:dev:web\" \"npm:dev:api\"",
+    "dev:web": "vite",
+    "dev:api": "node --watch server/index.js",
+    "build": "vite build",
+    "start": "NODE_ENV=production node server/index.js",
+    "preview": "npm run build && npm run start"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "vite": "^6.0.7"
+  }
+}
