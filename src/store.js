@@ -24,7 +24,13 @@ function write(key, value) {
 }
 
 export function todayKey(d = new Date()) {
-  return d.toISOString().slice(0, 10); // YYYY-MM-DD (local-ish, fine for prototype)
+  // Local Y-M-D (not UTC) so it matches the calendar grid, which is built from
+  // local date parts. Using toISOString() here would shift the key across the
+  // UTC midnight boundary and disagree with the calendar (doc §8.2).
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function uid() {
@@ -71,6 +77,18 @@ export function toggleSave(card) {
   write(KEYS.saved, saved);
   return getSaved();
 }
+export function removeSaved(id) {
+  write(
+    KEYS.saved,
+    getSaved().filter((c) => c.id !== id)
+  );
+  return getSaved();
+}
+
+// Clears all local data (used by Settings → Reset).
+export function clearAllData() {
+  Object.values(KEYS).forEach((k) => localStorage.removeItem(k));
+}
 
 // ---- streak: consecutive days the app was opened (§4.5) ----
 export function registerOpen() {
@@ -82,10 +100,10 @@ export function registerOpen() {
   }
   return computeStreak();
 }
-export function computeStreak() {
+export function computeStreak(now = new Date()) {
   const opens = new Set(read(KEYS.opens, []));
   let streak = 0;
-  const cursor = new Date();
+  const cursor = new Date(now);
   // count back from today while each day is present
   // (today not yet counted if app never opened — but registerOpen runs at mount)
   for (;;) {

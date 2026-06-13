@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import OracleCard from "./OracleCard.jsx";
 import { drawCard } from "../api.js";
 import { isSaved, toggleSave, encodeSpark } from "../store.js";
+import { renderCardPng, downloadBlob } from "../cardImage.js";
 import {
   BookmarkIcon,
   RefreshIcon,
@@ -11,6 +12,7 @@ import {
   CheckIcon,
   CopyIcon,
   CloseIcon,
+  DownloadIcon,
 } from "./icons.jsx";
 
 // Shared result view (doc §4.2). Reused by Today (inline) and by Saved/Calendar
@@ -31,7 +33,9 @@ export default function CardResult({
   const [followUsed, setFollowUsed] = useState(false);
   const [spark, setSpark] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [imgBusy, setImgBusy] = useState(false);
   const [err, setErr] = useState("");
+  const previewRef = useRef(null);
 
   function onSave() {
     toggleSave(card);
@@ -75,17 +79,40 @@ export default function CardResult({
   const sparkUrl = `${location.origin}/spark?d=${encodeSpark(card)}`;
   const sparkMsg = "Someone thought of you today \u{1F4AB}";
 
-  async function shareSpark() {
-    if (navigator.share) {
-      try {
-        await navigator.share({ title: "Dawnhalo", text: sparkMsg, url: sparkUrl });
-        return;
-      } catch {
-        /* user cancelled — fall through to copy UI */
+  const slug = (card.cardName || "dawnhalo").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+
+  // Share the card as an image via the native share sheet, with the link in the
+  // text so the recipient can open the live page. Falls back to downloading.
+  async function shareImage() {
+    setImgBusy(true);
+    setErr("");
+    try {
+      const blob = await renderCardPng(previewRef.current, card);
+      const file = new File([blob], `${slug}.png`, { type: "image/png" });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], text: `${sparkMsg}  ${sparkUrl}` });
+      } else {
+        downloadBlob(blob, `${slug}.png`);
       }
+    } catch (e) {
+      if (e?.name !== "AbortError") setErr("Couldn’t make the image. You can copy the link instead.");
+    } finally {
+      setImgBusy(false);
     }
-    copyLink();
   }
+
+  async function saveImage() {
+    setImgBusy(true);
+    try {
+      const blob = await renderCardPng(previewRef.current, card);
+      downloadBlob(blob, `${slug}.png`);
+    } catch {
+      setErr("Couldn’t save the image.");
+    } finally {
+      setImgBusy(false);
+    }
+  }
+
   function copyLink() {
     navigator.clipboard?.writeText(sparkUrl).then(() => {
       setCopied(true);
@@ -174,17 +201,23 @@ export default function CardResult({
               Share this card with someone. They’ll see it on a simple page — no app needed — with a
               gentle nudge to draw their own.
             </p>
-            <div style={{ maxWidth: 240, margin: "0 auto 16px" }}>
+            <div ref={previewRef} style={{ maxWidth: 240, margin: "0 auto 16px" }}>
               <OracleCard card={card} />
             </div>
-            <button className="btn btn-gold btn-block" onClick={shareSpark}>
+            <button className="btn btn-gold btn-block" onClick={shareImage} disabled={imgBusy}>
               <SparkIcon width={18} height={18} />
-              Share “{sparkMsg}”
+              {imgBusy ? "Preparing…" : "Share this card"}
             </button>
-            <button className="btn btn-line btn-block" style={{ marginTop: 8 }} onClick={copyLink}>
-              {copied ? <CheckIcon width={17} height={17} /> : <CopyIcon width={17} height={17} />}
-              {copied ? "Link copied" : "Copy link"}
-            </button>
+            <div className="actions" style={{ marginTop: 8 }}>
+              <button className="btn btn-line" style={{ flex: 1, justifyContent: "center" }} onClick={saveImage} disabled={imgBusy}>
+                <DownloadIcon width={17} height={17} />
+                Save image
+              </button>
+              <button className="btn btn-line" style={{ flex: 1, justifyContent: "center" }} onClick={copyLink}>
+                {copied ? <CheckIcon width={17} height={17} /> : <CopyIcon width={17} height={17} />}
+                {copied ? "Link copied" : "Copy link"}
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

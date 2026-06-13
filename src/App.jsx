@@ -34,7 +34,15 @@ export default function App() {
             onOpenDay={(cards, k) => setViewer({ title: k, cards })}
           />
         )}
-        {tab === "settings" && <SettingsScreen />}
+        {tab === "settings" && (
+          <SettingsScreen
+            key={`set-${tick}`}
+            onReset={() => {
+              refresh();
+              setTab("today");
+            }}
+          />
+        )}
 
         <BottomNav tab={tab} setTab={setTab} />
 

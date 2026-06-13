@@ -78,3 +78,8 @@ export const CopyIcon = (p) => (
     <path d="M5 15V5a2 2 0 012-2h8" />
   </svg>
 );
+export const DownloadIcon = (p) => (
+  <svg {...S(p)}>
+    <path d="M12 3v12M7 11l5 5 5-5M5 21h14" />
+  </svg>
+);
