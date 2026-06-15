@@ -1,108 +1,65 @@
-import { useMemo, useState } from "react";
-import { Illustration } from "../illustrations/index.jsx";
-import { getSaved, removeSaved } from "../store.js";
-import { CloseIcon } from "./icons.jsx";
+import { useState } from "react";
+import { getSaved, removeSaved, washClass } from "../store.js";
 
-const KIND_LABEL = {
-  daily: "Daily",
-  guidance: "Question",
-  validation: "Feeling",
-  followup: "Follow-up",
-};
-const FILTERS = [
-  { id: "all", label: "All" },
-  { id: "daily", label: "Daily" },
-  { id: "guidance", label: "Questions" },
-  { id: "validation", label: "Feelings" },
-];
-
+// Saved cards (PRD §4.4): grid with name + message + date. Tap reopens the card
+// result read-only (Send a Spark still available).
 export default function SavedScreen({ onOpen }) {
   const [items, setItems] = useState(getSaved());
-  const [filter, setFilter] = useState("all");
-
-  const shown = useMemo(
-    () => (filter === "all" ? items : items.filter((c) => c.kind === filter)),
-    [items, filter]
-  );
-
-  function remove(e, id) {
-    e.stopPropagation();
-    setItems(removeSaved(id));
-  }
 
   return (
-    <div className="screen">
-      <div className="pad">
-        <div className="eyebrow">Your collection</div>
-        <h1 className="h1">Saved</h1>
-        <p className="muted" style={{ marginTop: 4 }}>
-          {items.length} {items.length === 1 ? "card" : "cards"} kept
-        </p>
-      </div>
+    <main className="mx-auto w-full max-w-md px-6 pb-32 pt-4">
+      <p className="text-[10px] uppercase tracking-[0.22em] text-ink/40">Your archive</p>
+      <h2 className="mb-1 font-serif text-3xl italic">Saved</h2>
+      <p className="mb-6 text-xs text-ink/50">
+        {items.length} {items.length === 1 ? "card" : "cards"} collected
+      </p>
 
-      {items.length > 0 ? (
-        <div className="pad" style={{ paddingTop: 0, paddingBottom: 4 }}>
-          <div className="chips">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                className={`chip ${filter === f.id ? "on" : ""}`}
-                onClick={() => setFilter(f.id)}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <div className="pad" style={{ paddingTop: 10, paddingBottom: 28 }}>
-        {items.length === 0 ? (
-          <div className="center-col">
-            <div style={{ width: 90 }}>
-              <div className="card-art" style={{ borderRadius: 16 }}>
-                <Illustration theme="star" />
-              </div>
-            </div>
-            <p className="muted" style={{ maxWidth: 240 }}>
-              Cards you save will gather here — a little constellation of the moments that landed.
-            </p>
-          </div>
-        ) : shown.length === 0 ? (
-          <p className="muted" style={{ textAlign: "center", padding: "24px 0" }}>
-            No {KIND_LABEL[filter]?.toLowerCase()} cards saved yet.
+      {items.length === 0 ? (
+        <div className="rounded-2xl border border-clay bg-white p-8 text-center">
+          <div className={`mx-auto mb-4 size-16 rounded-xl ${washClass("empty")}`} />
+          <p className="text-sm font-light leading-relaxed text-ink/55">
+            Cards you collect will rest here — a quiet archive of the moments that met you.
           </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {shown.map((c) => (
-              <button className="tile" key={c.id} onClick={() => onOpen(c)}>
-                <div className="thumb">
-                  <Illustration theme={c.theme} />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {items.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => onOpen(c)}
+              className="overflow-hidden rounded-2xl border border-clay bg-white text-left"
+            >
+              <div className={`relative aspect-[4/3] ${washClass(c.id || c.title)}`}>
+                <div className="absolute inset-0 flex items-center justify-center bg-canvas/20 p-3 backdrop-blur-[1px]">
+                  <p className="line-clamp-3 text-center font-serif text-[13px] italic leading-tight text-ink">
+                    “{c.title}”
+                  </p>
                 </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <p className="tile-name">{c.cardName}</p>
-                  <p className="tile-sub">{c.sourceInput ? `“${c.sourceInput}”` : c.message}</p>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
-                    {c.kind && KIND_LABEL[c.kind] ? <span className="pill">{KIND_LABEL[c.kind]}</span> : null}
-                    <span className="tile-sub" style={{ color: "var(--gold)", margin: 0 }}>
-                      {new Date(c.savedAt || c.createdAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                </div>
-                <span
-                  className="icon-btn mic"
-                  style={{ width: 32, height: 32 }}
-                  onClick={(e) => remove(e, c.id)}
-                  role="button"
-                  aria-label="Remove from saved"
-                >
-                  <CloseIcon width={15} height={15} />
+              </div>
+              <div className="flex items-center justify-between px-3 py-2">
+                <span className="text-[10px] uppercase tracking-[0.12em] text-ink/40">
+                  {new Date(c.savedAt || c.createdAt).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
                 </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
+                <span
+                  role="button"
+                  aria-label="Remove"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setItems(removeSaved(c.id));
+                  }}
+                  className="text-[12px] text-ink/30 hover:text-ink"
+                >
+                  ×
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </main>
   );
 }

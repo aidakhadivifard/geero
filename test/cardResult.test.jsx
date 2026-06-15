@@ -1,74 +1,51 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import CardResult from "../src/components/CardResult.jsx";
-import { drawCard } from "../src/api.js";
 
-vi.mock("../src/api.js", () => ({
-  drawCard: vi.fn(),
-  health: vi.fn(),
-}));
+const card = { id: "c1", intent: "feel", title: "Tired is a real weather. Not a failing.", body: "Do less today." };
 
-const baseCard = {
-  id: "c1",
-  cardName: "Steady Ground",
-  message: "You can set part of this down.",
-  context: "Notice one thing that is already okay.",
-  theme: "anchor",
-  kind: "validation",
-  reminders: [],
-};
+beforeEach(() => localStorage.clear());
 
-beforeEach(() => {
-  localStorage.clear();
-  drawCard.mockReset();
-});
-
-describe("CardResult — shared result view (doc §4.2)", () => {
-  it("renders the card and its core actions", () => {
-    render(<CardResult card={baseCard} source={{ mode: "input", input: "x" }} />);
-    expect(screen.getByText("Steady Ground")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save this card/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /ask a follow-up/i })).toBeInTheDocument();
+// Build order #3/#6 — card result component.
+describe("CardResult", () => {
+  it("renders the card and core actions", () => {
+    render(<CardResult card={card} />);
+    expect(screen.getByText(/Tired is a real weather/)).toBeInTheDocument();
+    expect(screen.getByText(/Do less today/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /collect/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send a spark/i })).toBeInTheDocument();
   });
 
-  it("allows exactly ONE follow-up, then offers only Save / Draw a new card", async () => {
+  it("collecting toggles saved state", async () => {
     const user = userEvent.setup();
-    drawCard.mockResolvedValue({
-      id: "c2",
-      cardName: "Steady Ground",
-      message: "Trust the next small step.",
-      context: "",
-      theme: "path",
-      kind: "followup",
-      reminders: [],
-    });
-    const onReplace = vi.fn();
-    render(
-      <CardResult card={baseCard} source={{ mode: "input", input: "x" }} onReplace={onReplace} />
-    );
-
-    await user.click(screen.getByRole("button", { name: /ask a follow-up/i }));
-    const box = screen.getByPlaceholderText(/one follow-up/i);
-    await user.type(box, "What about Thursday?");
-    await user.click(screen.getByRole("button", { name: /send follow-up/i }));
-
-    await waitFor(() => expect(onReplace).toHaveBeenCalledTimes(1));
-    expect(drawCard).toHaveBeenCalledWith(
-      expect.objectContaining({ mode: "follow_up", input: "What about Thursday?" })
-    );
-    // No second follow-up is offered.
-    expect(screen.queryByRole("button", { name: /ask a follow-up/i })).not.toBeInTheDocument();
-    // Re-draw is now framed as "Draw a new card".
-    expect(screen.getByRole("button", { name: /draw a new card/i })).toBeInTheDocument();
+    render(<CardResult card={card} />);
+    await user.click(screen.getByRole("button", { name: /^collect/i }));
+    expect(screen.getByText(/collected/i)).toBeInTheDocument();
   });
 
-  it("read-only mode hides follow-up and re-draw, keeps Save and Send a Spark (doc §4.4)", () => {
-    render(<CardResult card={baseCard} readOnly />);
-    expect(screen.queryByRole("button", { name: /ask a follow-up/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /draw a different card/i })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /save this card/i })).toBeInTheDocument();
+  it("offers ONE follow-up and calls onFollowUp with the question", async () => {
+    const user = userEvent.setup();
+    const onFollowUp = vi.fn().mockResolvedValue(undefined);
+    render(<CardResult card={card} canFollowUp onFollowUp={onFollowUp} />);
+
+    await user.click(screen.getByRole("button", { name: /ask something about this card/i }));
+    await user.type(screen.getByPlaceholderText(/what does this mean/i), "What about work?");
+    await user.click(screen.getByRole("button", { name: /^ask$/i }));
+
+    expect(onFollowUp).toHaveBeenCalledWith("What about work?");
+  });
+
+  it("hides the follow-up affordance when canFollowUp is false", () => {
+    render(<CardResult card={card} canFollowUp={false} />);
+    expect(screen.queryByText(/ask something about this card/i)).not.toBeInTheDocument();
+  });
+
+  it("read-only hides follow-up and Today reset, keeps Collect + Spark", () => {
+    render(<CardResult card={card} readOnly onReset={() => {}} canFollowUp />);
+    expect(screen.queryByText(/ask something about this card/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /today/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /collect/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /send a spark/i })).toBeInTheDocument();
   });
 });

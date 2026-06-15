@@ -1,36 +1,47 @@
-import OracleCard from "./components/OracleCard.jsx";
-import { SparkIcon } from "./components/icons.jsx";
+import CardView from "./components/CardView.jsx";
 import { decodeSpark } from "./store.js";
 
-// Recipient-facing web view (doc §4.6): a separate, lightweight surface. No login,
-// no full app — just the card, beautifully presented, and a "Draw your own card"
-// CTA. The card travels entirely in the URL (?d=...), so no backend is needed.
+// Recipient-facing web view (PRD §4.6): lightweight, no app, no login. The card
+// travels in the URL (?d=...). CTA links back to draw your own.
 export default function SparkPage() {
-  const params = new URLSearchParams(location.search);
-  const card = decodeSpark(params.get("d") || "");
-
-  if (!card) {
-    return (
-      <div className="spark-page">
-        <div className="spark-tag">This spark couldn’t be opened.</div>
-        <a className="btn btn-gold" href="/">
-          Open Dawnhalo
-        </a>
-      </div>
-    );
-  }
+  const card = decodeSpark(new URLSearchParams(location.search).get("d") || "");
 
   return (
-    <div className="spark-page">
-      <div className="spark-tag">Someone thought of you today ✦</div>
-      <div className="spark-frame">
-        <OracleCard card={card} animate />
+    <div className="flex min-h-screen flex-col items-center justify-center px-6 py-12">
+      <div className="flex items-center gap-2 pb-6">
+        <span className="size-2 animate-pulse rounded-full bg-gold" />
+        <span className="font-serif text-xl italic tracking-wide">Dawnhalo</span>
       </div>
-      <p className="spark-cta">A little light from a friend, via Dawnhalo.</p>
-      <a className="btn btn-gold" href="/" style={{ textDecoration: "none" }}>
-        <SparkIcon width={18} height={18} />
-        Draw your own card
-      </a>
+
+      {card ? (
+        <>
+          <p className="mb-4 text-center text-[10px] uppercase tracking-[0.22em] text-ink/40">
+            Someone thought of you today ✦
+          </p>
+          <div className="w-full max-w-sm">
+            <CardView card={{ ...card, eyebrow: "A card, sent to you" }} animate />
+          </div>
+          <a
+            href="/"
+            className="mt-8 block rounded-full bg-ink px-8 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-canvas hover:bg-gold hover:text-ink"
+          >
+            Draw your own card
+          </a>
+          <p className="mt-3 text-[10px] uppercase tracking-[0.18em] text-ink/35">
+            A daily moment of perspective
+          </p>
+        </>
+      ) : (
+        <div className="text-center">
+          <p className="font-serif text-2xl italic">This spark couldn’t be opened.</p>
+          <a
+            href="/"
+            className="mt-6 inline-block rounded-full bg-ink px-8 py-4 text-xs font-semibold uppercase tracking-[0.2em] text-canvas"
+          >
+            Open Dawnhalo
+          </a>
+        </div>
+      )}
     </div>
   );
 }

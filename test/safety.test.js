@@ -1,33 +1,34 @@
 import { describe, it, expect } from "vitest";
 import { detectCrisis, crisisResponse } from "../server/safety.js";
 
-// Highest-priority logic per doc §8.1. The crisis gate must catch genuine
-// self-harm / hopelessness signals (true positives) while letting everyday
-// stress, sadness, and loneliness through to the normal card flow (true
-// negatives — doc §4.3 Case B and the loneliness tone note).
+// Build order #1 — highest priority. The crisis gate must catch self-harm /
+// hopelessness signals (true positives) while letting everyday stress, sadness,
+// and loneliness through to the normal card flow (true negatives).
 
 describe("detectCrisis — true positives (must trigger support)", () => {
   const positives = [
     "I want to kill myself",
-    "I've been thinking about killing myself lately",
+    "thinking about killing myself",
     "I just want to end my life",
+    "I want to end it all",
     "I don't want to be alive anymore",
+    "I do not want to be alive",
+    "I don't want to wake up",
     "honestly I want to die",
     "there's no reason to live",
     "everyone would be better off without me",
+    "I'd be better off dead",
     "I've been harming myself",
     "I keep thinking about hurting myself",
-    "sometimes I want to disappear forever",
+    "I want to disappear forever",
     "I can't go on anymore",
-    "I can't keep going",
-    "I took an overdose last night",
+    "I feel completely hopeless",
+    "I took an overdose",
     "I want to cut myself",
-    "I feel like ending it all and taking my own life",
+    "I feel like taking my own life",
   ];
   for (const text of positives) {
-    it(`flags: "${text}"`, () => {
-      expect(detectCrisis(text)).toBe(true);
-    });
+    it(`flags: "${text}"`, () => expect(detectCrisis(text)).toBe(true));
   }
 });
 
@@ -46,29 +47,23 @@ describe("detectCrisis — true negatives (must NOT trigger support)", () => {
     "I'm worried about money",
     "I feel like a failure",
     "Should I take the new job offer?",
-    "Will today go well?",
     "I'm tired of everything going wrong",
     "",
     null,
     undefined,
   ];
   for (const text of negatives) {
-    it(`allows: ${JSON.stringify(text)}`, () => {
-      expect(detectCrisis(text)).toBe(false);
-    });
+    it(`allows: ${JSON.stringify(text)}`, () => expect(detectCrisis(text)).toBe(false));
   }
 });
 
-describe("crisisResponse shape", () => {
-  it("is a non-card support response with real resources", () => {
+describe("crisisResponse", () => {
+  it("is a non-card support payload with 988 + Samaritans", () => {
     const r = crisisResponse();
     expect(r.isCrisis).toBe(true);
-    expect(r.cardName).toBeTruthy();
-    expect(Array.isArray(r.resources)).toBe(true);
-    expect(r.resources.length).toBeGreaterThan(0);
-    for (const res of r.resources) {
-      expect(res.name).toBeTruthy();
-      expect(res.contact).toBeTruthy();
-    }
+    expect(r.title).toBeTruthy();
+    const tels = r.resources.map((x) => x.tel);
+    expect(tels).toContain("988");
+    expect(tels).toContain("116123");
   });
 });

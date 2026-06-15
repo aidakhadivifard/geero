@@ -1,223 +1,204 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import CardResult from "./CardResult.jsx";
-import CrisisCard from "./CrisisCard.jsx";
-import { MicIcon, SendIcon } from "./icons.jsx";
+import Composer from "./Composer.jsx";
+import CrisisPanel from "./CrisisPanel.jsx";
+import Paywall from "./Paywall.jsx";
+import Plans from "./Plans.jsx";
 import { drawCard, health } from "../api.js";
+import { detectCrisis } from "../../shared/crisis.js";
 import {
   uid,
+  todayKey,
+  freeRemaining,
+  consumeFree,
   getCachedDaily,
   cacheDaily,
-  recordHistory,
+  recordCard,
 } from "../store.js";
 
-function decorate(raw, sourceInput) {
+function decorate(raw, intent, input) {
   if (raw.isCrisis) return raw;
-  return { ...raw, id: uid(), createdAt: Date.now(), sourceInput };
+  return {
+    ...raw,
+    id: `${intent}-${todayKey()}-${uid()}`,
+    intent,
+    date: todayKey(),
+    prompt: input || null,
+    createdAt: Date.now(),
+  };
 }
 
 const niceDate = () =>
-  new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
+  new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
 export default function TodayScreen({ onActivity }) {
   const [daily, setDaily] = useState(null);
-  const [result, setResult] = useState(null); // currently displayed card
-  const [source, setSource] = useState({ mode: "daily" });
-  const [loading, setLoading] = useState(true);
-  const [drawing, setDrawing] = useState(false);
+  const [current, setCurrent] = useState(null);
+  const [followUsed, setFollowUsed] = useState(false);
   const [text, setText] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [crisis, setCrisis] = useState(false);
+  const [paywall, setPaywall] = useState(false);
+  const [remaining, setRemaining] = useState(freeRemaining());
   const [err, setErr] = useState("");
   const [info, setInfo] = useState(null);
-  const [listening, setListening] = useState(false);
-  const recRef = useRef(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let off = false;
     (async () => {
       const h = await health();
-      if (!cancelled) setInfo(h);
+      if (!off) setInfo(h);
       const cached = getCachedDaily();
       if (cached) {
-        if (!cancelled) {
+        if (!off) {
           setDaily(cached);
-          setResult(cached);
+          setCurrent(cached);
           setLoading(false);
         }
         return;
       }
       try {
-        const raw = await drawCard({ mode: "daily" });
-        const card = decorate(raw, null);
+        const raw = await drawCard({ intent: "daily" });
+        const card = decorate(raw, "daily", "");
         cacheDaily(card);
-        recordHistory(card);
-        if (!cancelled) {
+        recordCard(card);
+        if (!off) {
           setDaily(card);
-          setResult(card);
+          setCurrent(card);
+          onActivity?.();
         }
       } catch (e) {
-        if (!cancelled) setErr(e.message);
+        if (!off) setErr(e.message);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!off) setLoading(false);
       }
     })();
     return () => {
-      cancelled = true;
+      off = true;
     };
   }, []);
 
-  async function submit() {
+  async function draw(intent) {
     const input = text.trim();
-    if (!input || drawing) return;
-    setDrawing(true);
+    if (!input || busy) return;
     setErr("");
+    if (detectCrisis(input)) {
+      setCrisis(true);
+      return;
+    }
+    if (freeRemaining() <= 0) {
+      setPaywall(true);
+      return;
+    }
+    setBusy(true);
     try {
-      const raw = await drawCard({ mode: "input", input });
-      const card = decorate(raw, input);
-      setResult(card);
-      setSource({ mode: "input", input });
-      recordHistory(card);
-      onActivity?.();
+      const raw = await drawCard({ intent, input });
+      if (raw.isCrisis) {
+        setCrisis(true);
+        return;
+      }
+      const card = decorate(raw, intent, input);
+      setCurrent(card);
+      setFollowUsed(false);
+      setRemaining(consumeFree());
+      recordCard(card);
       setText("");
+      onActivity?.();
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (e) {
       setErr(e.message);
     } finally {
-      setDrawing(false);
+      setBusy(false);
     }
   }
 
-  function onReplace(raw) {
-    const card = decorate(raw, source.input ?? null);
-    setResult(card);
-    recordHistory(card);
+  async function followUp(question) {
+    const raw = await drawCard({ intent: "follow", input: question, previous: current });
+    if (raw.isCrisis) {
+      setCrisis(true);
+      return;
+    }
+    const card = decorate(raw, "follow", question);
+    setCurrent(card);
+    setFollowUsed(true);
+    recordCard(card);
     onActivity?.();
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function backToDaily() {
-    setResult(daily);
-    setSource({ mode: "daily" });
+  function resetToToday() {
+    setCurrent(daily);
+    setFollowUsed(false);
+  }
+  function seePlans() {
+    setPaywall(false);
+    document.getElementById("plans")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  function toggleMic() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      // Prototype fallback (doc §4.3: voice can be mocked).
-      setText((t) => (t ? t : "I'm feeling a little overwhelmed today"));
-      return;
-    }
-    if (listening) {
-      recRef.current?.stop();
-      return;
-    }
-    const rec = new SR();
-    rec.lang = "en-US";
-    rec.interimResults = false;
-    rec.onresult = (e) => {
-      const t = Array.from(e.results).map((r) => r[0].transcript).join(" ");
-      setText((prev) => (prev ? prev + " " : "") + t);
-    };
-    rec.onend = () => setListening(false);
-    rec.onerror = () => setListening(false);
-    recRef.current = rec;
-    setListening(true);
-    rec.start();
-  }
-
-  const showingDaily = result && daily && result.id === daily.id;
+  const showReset = current && daily && current.id !== daily.id;
 
   return (
-    <div className="screen">
-      <div className="pad">
-        <div className="eyebrow">{niceDate()}</div>
-        <h1 className="h1">{showingDaily ? "Today’s card" : "For you"}</h1>
-      </div>
+    <main className="mx-auto w-full max-w-md px-6 pb-32">
+      <section className="mb-10 pt-2">
+        <p className="mb-1 text-center text-[10px] uppercase tracking-[0.22em] text-ink/40">
+          {niceDate()}
+        </p>
+        <p className="mb-5 text-center text-[10px] uppercase tracking-[0.22em] text-ink/40">
+          {showReset ? "Drawn for you" : "Your morning perspective"}
+        </p>
 
-      <div style={{ padding: "10px 18px 0" }}>
         {info && info.ok && !info.apiKey && !info.fallback ? (
-          <div className="notice" style={{ marginBottom: 14 }}>
-            No API key configured yet. Add <b>ANTHROPIC_API_KEY</b> to <b>.env</b> and restart the
-            server to generate real cards (or set <b>DAWNHALO_ALLOW_FALLBACK=1</b> for demo cards).
+          <div className="mb-5 rounded-xl border border-gold/40 bg-gold/10 p-3 text-[11px] leading-relaxed text-ink/70">
+            No API key set. Add <b>ANTHROPIC_API_KEY</b> to <b>.env</b> and restart, or set{" "}
+            <b>DAWNHALO_ALLOW_FALLBACK=1</b> for offline demo cards.
           </div>
         ) : null}
 
         {loading ? (
-          <div className="center-col">
-            <div className="spin" />
-            <div className="muted">Drawing today’s card…</div>
+          <div className="flex flex-col items-center gap-3 py-16">
+            <span className="dh-spin" />
+            <p className="text-[11px] uppercase tracking-[0.18em] text-ink/40">
+              Drawing today’s card…
+            </p>
           </div>
-        ) : err && !result ? (
-          <div className="notice">{err}</div>
-        ) : result && result.isCrisis ? (
-          <CrisisCard card={result} onClose={backToDaily} />
-        ) : result ? (
-          <>
-            {!showingDaily && (
-              <button
-                className="btn btn-line"
-                style={{ marginBottom: 10 }}
-                onClick={backToDaily}
-              >
-                ← Today’s card
-              </button>
-            )}
-            <CardResult
-              key={result.id}
-              card={result}
-              source={source}
-              onReplace={onReplace}
-              onSavedChange={onActivity}
-            />
-          </>
-        ) : null}
-      </div>
-
-      {/* open input — feeds both "Ask the deck" and "How are you feeling" (doc §4.1/4.3) */}
-      <div className="pad" style={{ paddingTop: 18 }}>
-        <div className="eyebrow dim">Have something on your mind?</div>
-        <div className="input-wrap">
-          <textarea
-            rows={1}
-            placeholder="Ask the deck, or share how you’re feeling…"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submit();
-              }
-            }}
+        ) : current ? (
+          <CardResult
+            key={current.id}
+            card={current}
+            animate
+            onReset={showReset ? resetToToday : null}
+            canFollowUp={!followUsed}
+            onFollowUp={followUp}
+            onSavedChange={onActivity}
           />
-          <button
-            className={`icon-btn mic ${listening ? "live" : ""}`}
-            onClick={toggleMic}
-            aria-label="Voice input"
-          >
-            <MicIcon width={18} height={18} />
-          </button>
-          <button className="icon-btn send" onClick={submit} aria-label="Send" disabled={drawing}>
-            <SendIcon width={18} height={18} />
-          </button>
-        </div>
-      </div>
+        ) : err ? (
+          <div className="rounded-2xl border border-clay bg-white p-6 text-sm text-ink/70">{err}</div>
+        ) : null}
+      </section>
 
-      {/* Reminders for today (doc §4.1) */}
-      {daily?.reminders?.length ? (
-        <div className="pad" style={{ paddingTop: 8, paddingBottom: 24 }}>
-          <div className="eyebrow dim" style={{ marginBottom: 8 }}>
-            Reminders for today
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {daily.reminders.map((r, i) => (
-              <div className="reminder" key={i}>
-                <span style={{ color: "var(--peach)" }}>✦</span>
-                <span>{r}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
+      <section className="space-y-6">
+        {crisis ? (
+          <CrisisPanel onClose={() => setCrisis(false)} />
+        ) : (
+          <>
+            <Composer
+              value={text}
+              setValue={setText}
+              onDraw={draw}
+              remaining={remaining}
+              busy={busy}
+            />
+            {err && current ? (
+              <p className="text-center text-[11px] text-ink/50">{err}</p>
+            ) : null}
+          </>
+        )}
+      </section>
+
+      <Plans onSeePlans={seePlans} />
+
+      {paywall ? <Paywall onClose={() => setPaywall(false)} onSeePlans={seePlans} /> : null}
+    </main>
   );
 }

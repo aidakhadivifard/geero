@@ -4,8 +4,7 @@ import { dirname, join } from "node:path";
 import fs from "node:fs";
 import { generateCard, hasApiKey } from "./cardGenerator.js";
 
-// Minimal .env loader (avoids an extra dependency). Only sets vars not already
-// present in the environment.
+// Minimal .env loader (no extra dependency). Only sets vars not already present.
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const envPath = join(__dirname, "..", ".env");
 if (fs.existsSync(envPath)) {
@@ -29,27 +28,23 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.post("/api/card", async (req, res) => {
-  const { mode, input, previousCard } = req.body || {};
+  const { intent, input, previous } = req.body || {};
   try {
-    const card = await generateCard({ mode, input, previousCard });
+    const card = await generateCard({ intent, input, previous });
     res.json(card);
   } catch (err) {
     if (err.code === "missing_api_key") {
       return res.status(503).json({
         error: "missing_api_key",
         message:
-          "No ANTHROPIC_API_KEY is configured on the server. Add it to .env (see .env.example) and restart, or set DAWNHALO_ALLOW_FALLBACK=1 for offline demo cards.",
+          "No ANTHROPIC_API_KEY configured. Add it to .env (see .env.example) and restart, or set DAWNHALO_ALLOW_FALLBACK=1 for offline demo cards.",
       });
     }
     console.error("[/api/card]", err);
-    res.status(500).json({
-      error: err.code || "generation_failed",
-      message: "Could not draw a card right now. Please try again.",
-    });
+    res.status(500).json({ error: err.code || "generation_failed", message: "Could not draw a card right now. Please try again." });
   }
 });
 
-// In production, serve the built frontend (and let client routing handle /spark).
 if (process.env.NODE_ENV === "production") {
   const dist = join(__dirname, "..", "dist");
   app.use(express.static(dist));
