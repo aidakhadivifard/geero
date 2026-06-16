@@ -16,26 +16,54 @@ VOICE
 - Literary and spare. Second person. Present tense. No lists, no emoji, no headings.
 - Core promise: "You're doing better than you think. Here's a little light for your next step."
 
-A CARD = two parts:
-- "title": one short, evocative line — the perspective itself (roughly 6–18 words). This is the heart of the card. Concrete and a little poetic, e.g. "Tired is a real weather. Not a failing." or "Something quiet is moving in your favor."
+A CARD = three parts:
+- "opener": ONE sentence — a warm, intuitive "reading" opener, like a reader leaning in to read the energy of the card or the person's situation. It appears (in italic) above the title. It must feel personal and present, never generic or robotic, never theatrical or over-the-top. Vary it naturally — never reuse the same phrasing. One sentence only.
+    · Daily card, e.g.: "I'm reading the energy of today's card for you…" / "This card has something specific to say to you today…"
+    · Question card, e.g.: "Let me read what this card is saying about your question…" / "I'm drawing the energy around what you're asking…"
+    · Feeling card, e.g.: "Let me sit with what you're carrying for a moment…" / "I'm reading the energy of what you just shared…"
+    · Follow-up, e.g.: "Let me look a little deeper into this for you…"
+- "title": one short, evocative line — the perspective itself (roughly 6–18 words). The heart of the card. Concrete and a little poetic, e.g. "Tired is a real weather. Not a failing."
 - "body": 1–2 short sentences that ground or extend the title. Gentle, specific, never a lecture.
 
 RULES
-1. Validate before reframe: for a hard feeling, acknowledge it honestly FIRST, then offer a grounded reframe. Never dismissive positivity, never "just think positive".
+1. Validate before reframe: for a hard feeling, acknowledge it honestly FIRST, then offer a grounded reframe. Never dismissive positivity.
 2. No appearance focus: even if they mention how they look, redirect to how they feel or what their day needs. Never affirm or comment on physical appearance.
-3. Loneliness / wanting to be noticed: if they feel unseen, unnoticed, lonely, or wish someone paid attention to them or found them desirable, affirm their worth and that they ARE seen — speaking AS the card, in your own voice. NEVER invent a person, character, or admirer who notices/wants/desires them, and never simulate a relationship. The reassurance comes from the card itself.
-4. Questions: respond to the actual question with grounded, non-deterministic guidance — you offer perspective and a next step, you do not predict the future.
+3. Loneliness / wanting to be noticed: if they feel unseen, unnoticed, lonely, or wish someone paid attention to them or found them desirable, affirm their worth and that they ARE seen — speaking AS the card, in your own voice. NEVER invent a person, character, or admirer who notices/wants/desires them, and never simulate a relationship.
+4. Questions: respond with grounded, non-deterministic guidance — perspective and a next step, not a prediction.
 5. Keep it short. Seconds to read.`;
 
 const CARD_SCHEMA = {
   type: "object",
   properties: {
+    opener: { type: "string" },
     title: { type: "string" },
     body: { type: "string" },
   },
-  required: ["title", "body"],
+  required: ["opener", "title", "body"],
   additionalProperties: false,
 };
+
+// Safety-net openers used for fallback cards and if the model ever omits one.
+const OPENERS = {
+  daily: [
+    "I'm reading the energy of today's card for you…",
+    "This card has something specific to say to you today…",
+    "Let me see what today is quietly offering you…",
+  ],
+  ask: [
+    "Let me read what this card is saying about your question…",
+    "I'm drawing the energy around what you're asking…",
+  ],
+  feel: [
+    "Let me sit with what you're carrying for a moment…",
+    "I'm reading the energy of what you just shared…",
+  ],
+  follow: ["Let me look a little deeper into this for you…", "Let me read what's underneath that…"],
+};
+function openerFor(intent) {
+  const list = OPENERS[intent] || OPENERS.daily;
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 let client = null;
 function getClient() {
@@ -43,27 +71,22 @@ function getClient() {
   if (!client) client = new Anthropic();
   return client;
 }
-
 export function hasApiKey() {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
 function buildUserPrompt({ intent, input, previous }) {
-  if (intent === "daily") {
-    return `Request: DAILY CARD. Write today's daily card — a general "morning perspective" of gentle encouragement (the user hasn't told you anything specific). Make it feel freshly written, not generic.`;
-  }
-  if (intent === "follow") {
+  if (intent === "daily")
+    return `Request: DAILY CARD. Write today's daily card — a general "morning perspective" of gentle encouragement (the user hasn't told you anything specific). Make it feel freshly written.`;
+  if (intent === "follow")
     return `Request: FOLLOW-UP. The user already drew this card:
   Title: "${previous?.title}"
   Body: "${previous?.body}"
 They asked one follow-up: "${input}"
 Answer their follow-up directly, staying true to that card's spirit.`;
-  }
-  if (intent === "ask") {
+  if (intent === "ask")
     return `Request: QUESTION. The user asked: "${input}"
 Respond with guidance-style framing — perspective and a next step, not a prediction.`;
-  }
-  // feel
   return `Request: FEELING. The user shared: "${input}"
 Validate the feeling first, then offer a grounded reframe. Follow the loneliness and no-appearance rules if relevant.`;
 }
@@ -89,23 +112,22 @@ const FALLBACK_FEEL = {
 
 function hash(s) {
   let h = 0;
-  for (let i = 0; i < String(s).length; i++) h = (h * 31 + String(s).charCodeAt(i)) | 0;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
-
 function fallbackCard({ intent, input }) {
-  if (intent === "daily") {
-    const k = new Date().toISOString().slice(0, 10);
-    return FALLBACK_DAILY[hash(k) % FALLBACK_DAILY.length];
+  let base;
+  if (intent === "daily") base = FALLBACK_DAILY[hash(new Date().toISOString().slice(0, 10)) % FALLBACK_DAILY.length];
+  else if (intent === "ask" || intent === "follow") base = FALLBACK_ASK[hash(input || Date.now()) % FALLBACK_ASK.length];
+  else {
+    const lo = (input || "").toLowerCase();
+    if (/(invisible|unseen|no one|nobody|lonely|notice)/.test(lo)) base = FALLBACK_FEEL.invisible;
+    else if (/(tired|exhaust|drained)/.test(lo)) base = FALLBACK_FEEL.tired;
+    else if (/(sad|down|low|cry)/.test(lo)) base = FALLBACK_FEEL.sad;
+    else base = FALLBACK_FEEL.default;
   }
-  if (intent === "ask" || intent === "follow") {
-    return FALLBACK_ASK[hash(input || Date.now()) % FALLBACK_ASK.length];
-  }
-  const lo = (input || "").toLowerCase();
-  if (/(invisible|unseen|no one|nobody|lonely|notice)/.test(lo)) return FALLBACK_FEEL.invisible;
-  if (/(tired|exhaust|drained)/.test(lo)) return FALLBACK_FEEL.tired;
-  if (/(sad|down|low|cry)/.test(lo)) return FALLBACK_FEEL.sad;
-  return FALLBACK_FEEL.default;
+  return { ...base, opener: openerFor(intent) };
 }
 
 function parseCardJson(text) {
@@ -126,15 +148,12 @@ function parseCardJson(text) {
 }
 
 export async function generateCard({ intent, input = "", previous = null }) {
-  // Normalize intent: explicit from the UI, else classify (PRD §4.3).
   if (intent !== "daily" && intent !== "ask" && intent !== "feel" && intent !== "follow") {
     intent = classifyIntent(input);
   }
 
   // Layer 1: deterministic crisis gate, BEFORE any API call.
-  if (intent !== "daily" && detectCrisis(input)) {
-    return crisisResponse();
-  }
+  if (intent !== "daily" && detectCrisis(input)) return crisisResponse();
 
   const anthropic = getClient();
   if (!anthropic) {
@@ -148,7 +167,7 @@ export async function generateCard({ intent, input = "", previous = null }) {
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 400,
+    max_tokens: 500,
     system: SYSTEM_PROMPT,
     output_config: { format: { type: "json_schema", schema: CARD_SCHEMA } },
     messages: [{ role: "user", content: buildUserPrompt({ intent, input, previous }) }],
@@ -165,5 +184,11 @@ export async function generateCard({ intent, input = "", previous = null }) {
   // Layer 2: re-check the model's output for crisis language, just in case.
   if (detectCrisis(`${card.title} ${card.body}`)) return crisisResponse();
 
-  return { title: card.title, body: card.body, intent, isCrisis: false };
+  return {
+    opener: card.opener || openerFor(intent),
+    title: card.title,
+    body: card.body,
+    intent,
+    isCrisis: false,
+  };
 }

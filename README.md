@@ -39,9 +39,10 @@ mirror the prototype's copy so the demo looks identical).
 ## What's wired in
 
 - **Real card generation** — daily (cached once/day), question ("ask"), and feeling
-  ("feel") cards. System prompt encodes the brand voice, **validate-before-reframe**,
-  **no appearance focus**, and the **loneliness rule** (affirm worth directly, never
-  invent a fictional admirer). One follow-up per card.
+  ("feel") cards. Each card opens with a one-line italic **"reading" opener** (a warm,
+  intuitive reader leaning in), then the title + body. System prompt encodes the brand
+  voice, **validate-before-reframe**, **no appearance focus**, and the **loneliness rule**
+  (affirm worth directly, never invent a fictional admirer). One follow-up per card.
 - **Crisis detection** — a deterministic keyword gate (`shared/crisis.js`, shared by
   client + server) runs **before any model call**; on a hit it shows the support panel
   (988 / Samaritans 116 123) and never calls Claude.
@@ -54,16 +55,34 @@ mirror the prototype's copy so the demo looks identical).
 - **Paywall + plans** — 3 free draws, then the paywall; pricing preserved
   ($4.99/mo yearly, $9.99/mo monthly).
 
+## Security (for launch)
+
+- **Server-side rate limiting** (`express-rate-limit`, per IP, tunable via
+  `RATE_LIMIT_MAX`) on the paid `/api/card` endpoint — the primary cost/abuse control.
+- **Security headers + CSP** (`helmet`) — locks resources to same-origin while allowing
+  the Google Fonts the design uses; `nosniff`, no framing, etc.
+- **Input validation** (`server/validate.js`) — whitelists `intent`, requires/caps input
+  (≤ 600 chars), and sanitizes the follow-up payload to `{title, body}` only.
+- **Body-size limit** (16 kb) and **no internal/stack leakage** in error responses.
+- **API key stays server-side** — never sent to the browser; missing key returns a clean 503.
+
+> Note: the 3-free-draw paywall is enforced client-side (localStorage) and is therefore
+> bypassable — fine for launch UX, but real monetization enforcement needs accounts +
+> server-side accounting (out of scope here). Rate limiting protects against cost blowups
+> in the meantime.
+
 ## Tests (test-driven, build order per the PRD)
 
-`npm test` → **79 passing** (Vitest + Testing Library):
+`npm test` → **94 passing** (Vitest + Testing Library + Supertest):
 
 1. **Crisis detection** — true positives + true negatives (incl. loneliness/everyday stress)
 2. **Intent classification** — question vs feeling
-3. **Card generation** — structured output, crisis short-circuit, fallback, classify fallback (Anthropic SDK mocked)
-4. **Store** — streak/date logic, free-draw counter, save/retrieve, history, daily cache, Spark codec
-5. **Components** — the one-follow-up constraint, read-only mode
-6. **End-to-end journey** — open → daily → ask → result → collect → appears in Saved
+3. **Card generation** — structured output incl. the opener, crisis short-circuit, fallback, classify fallback (Anthropic SDK mocked)
+4. **Validation & endpoint** — intent whitelist, input caps, payload sanitizing; `/api/card` via Supertest (400 / 413 / 503 / crisis / helmet headers)
+5. **Rate limiting** — 429 after the per-window limit (isolated app instance)
+6. **Store** — streak/date logic, free-draw counter, save/retrieve, history, daily cache, Spark codec
+7. **Components** — the one-follow-up constraint, read-only mode
+8. **End-to-end journey** — open → daily → ask → result → collect → appears in Saved
 
 ## Layout
 
