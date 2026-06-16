@@ -1,92 +1,61 @@
 import { useState } from "react";
-import OracleCard from "./OracleCard.jsx";
-import { drawCard } from "../api.js";
+import CardView from "./CardView.jsx";
 import { isSaved, toggleSave, encodeSpark } from "../store.js";
-import {
-  BookmarkIcon,
-  RefreshIcon,
-  ChatIcon,
-  SparkIcon,
-  SendIcon,
-  CheckIcon,
-  CopyIcon,
-  CloseIcon,
-} from "./icons.jsx";
 
-// Shared result view (doc §4.2). Reused by Today (inline) and by Saved/Calendar
-// (read-only, in a sheet). Owns its own draw/follow-up API calls so the parent
-// just needs to react to onReplace().
+// Card + actions, reused by Today (full) and Saved/Calendar (read-only).
+// Actions: Collect (save), Share (Send a Spark), Today (reset), and — when
+// allowed — exactly ONE follow-up (PRD §4.2).
 export default function CardResult({
   card,
-  source, // { mode, input } — how to "draw a different card" for the same input
   readOnly = false,
-  onReplace,
+  onReset = null,
+  canFollowUp = false,
+  onFollowUp = null,
   onSavedChange,
-  onClose,
+  animate = false,
 }) {
   const [saved, setSaved] = useState(isSaved(card.id));
-  const [busy, setBusy] = useState(false);
+  const [sparkOpen, setSparkOpen] = useState(false);
+  const [note, setNote] = useState("");
   const [followOpen, setFollowOpen] = useState(false);
   const [followText, setFollowText] = useState("");
-  const [followUsed, setFollowUsed] = useState(false);
-  const [spark, setSpark] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [err, setErr] = useState("");
 
-  function onSave() {
+  function collect() {
     toggleSave(card);
     setSaved((s) => !s);
     onSavedChange?.();
   }
 
-  async function drawDifferent() {
-    if (!source) return;
-    setBusy(true);
-    setErr("");
-    try {
-      const next = await drawCard(source);
-      onReplace?.(next);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitFollowup() {
+  async function submitFollow() {
     const q = followText.trim();
-    if (!q) return;
+    if (!q || busy) return;
     setBusy(true);
-    setErr("");
     try {
-      const next = await drawCard({ mode: "follow_up", input: q, previousCard: card });
-      next.sourceInput = q;
-      onReplace?.(next);
-      setFollowUsed(true);
-      setFollowOpen(false);
+      await onFollowUp?.(q);
       setFollowText("");
-    } catch (e) {
-      setErr(e.message);
+      setFollowOpen(false);
     } finally {
       setBusy(false);
     }
   }
 
-  const sparkUrl = `${location.origin}/spark?d=${encodeSpark(card)}`;
-  const sparkMsg = "Someone thought of you today \u{1F4AB}";
-
-  async function shareSpark() {
+  const sparkUrl = `${location.origin}/spark?d=${encodeSpark(card, note)}`;
+  const sparkText = note.trim() || "Someone was thinking of you today ✦";
+  async function share() {
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Dawnhalo", text: sparkMsg, url: sparkUrl });
+        await navigator.share({ title: "Dawnhalo", text: sparkText, url: sparkUrl });
+        setSparkOpen(false);
         return;
       } catch {
-        /* user cancelled — fall through to copy UI */
+        /* cancelled — show copy fallback */
       }
     }
-    copyLink();
+    copy();
   }
-  function copyLink() {
+  function copy() {
     navigator.clipboard?.writeText(sparkUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
@@ -95,95 +64,148 @@ export default function CardResult({
 
   return (
     <div>
-      <OracleCard card={card} animate />
+      <CardView card={card} animate={animate} />
 
-      {err ? <div className="notice" style={{ marginTop: 12 }}>{err}</div> : null}
-
-      <div className="actions">
-        <button className="btn btn-gold" onClick={onSave}>
-          {saved ? <CheckIcon width={17} height={17} /> : <BookmarkIcon width={17} height={17} />}
-          {saved ? "Saved" : "Save this card"}
+      <div className="mt-7 flex items-center justify-center gap-8">
+        <button type="button" className="flex flex-col items-center gap-2" onClick={collect}>
+          <span
+            className={`flex size-7 items-center justify-center rounded-sm border text-[13px] ${
+              saved ? "border-gold bg-gold/15 text-gold" : "border-ink/40 text-ink/60"
+            }`}
+          >
+            {saved ? "✓" : ""}
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink/60">
+            {saved ? "Collected" : "Collect"}
+          </span>
         </button>
 
-        {!readOnly && (
-          <button className="btn btn-line" onClick={drawDifferent} disabled={busy}>
-            <RefreshIcon width={17} height={17} />
-            {followUsed ? "Draw a new card" : "Draw a different card"}
-          </button>
-        )}
-
-        {!readOnly && !followUsed && (
-          <button className="btn btn-line" onClick={() => setFollowOpen((v) => !v)} disabled={busy}>
-            <ChatIcon width={17} height={17} />
-            Ask a follow-up
-          </button>
-        )}
-
-        <button className="btn btn-line" onClick={() => setSpark(true)}>
-          <SparkIcon width={17} height={17} />
-          Send a Spark
+        <button
+          type="button"
+          className="flex flex-col items-center gap-2 opacity-70 hover:opacity-100"
+          onClick={() => setSparkOpen(true)}
+        >
+          <span className="flex size-7 items-center justify-center rounded-full border border-ink/40 text-[12px] text-ink/60">
+            ✦
+          </span>
+          <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink/60">
+            Send a Spark
+          </span>
         </button>
+
+        {onReset && !readOnly ? (
+          <button
+            type="button"
+            className="flex flex-col items-center gap-2 opacity-70 hover:opacity-100"
+            onClick={onReset}
+          >
+            <span className="flex size-7 items-center justify-center rounded-sm border border-ink/40 text-[12px] text-ink/60">
+              ↺
+            </span>
+            <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-ink/60">
+              Today
+            </span>
+          </button>
+        ) : null}
       </div>
 
-      {busy ? (
-        <div className="center-col" style={{ padding: "18px" }}>
-          <div className="spin" />
-          <div className="muted">Drawing your card…</div>
-        </div>
-      ) : null}
-
-      {followOpen && !followUsed ? (
-        <div className="input-wrap" style={{ marginTop: 12 }}>
-          <textarea
-            rows={1}
-            autoFocus
-            placeholder="One follow-up… e.g. “What does this mean for Thursday?”"
-            value={followText}
-            onChange={(e) => setFollowText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                submitFollowup();
-              }
-            }}
-          />
-          <button className="icon-btn send" onClick={submitFollowup} aria-label="Send follow-up">
-            <SendIcon width={18} height={18} />
-          </button>
-        </div>
-      ) : null}
-
-      {onClose ? (
-        <button className="btn btn-line btn-block" style={{ marginTop: 14 }} onClick={onClose}>
-          Close
-        </button>
-      ) : null}
-
-      {/* Send a Spark sheet (doc §4.6) */}
-      {spark ? (
-        <div className="sheet-scrim" onClick={() => setSpark(false)}>
-          <div className="sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="sheet-handle" />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div className="eyebrow">Send a Spark</div>
-              <button className="icon-btn mic" style={{ width: 34, height: 34 }} onClick={() => setSpark(false)}>
-                <CloseIcon width={16} height={16} />
-              </button>
-            </div>
-            <p className="muted" style={{ margin: "8px 0 14px" }}>
-              Share this card with someone. They’ll see it on a simple page — no app needed — with a
-              gentle nudge to draw their own.
-            </p>
-            <div style={{ maxWidth: 240, margin: "0 auto 16px" }}>
-              <OracleCard card={card} />
-            </div>
-            <button className="btn btn-gold btn-block" onClick={shareSpark}>
-              <SparkIcon width={18} height={18} />
-              Share “{sparkMsg}”
+      {/* One follow-up per card (PRD §4.2) */}
+      {!readOnly && canFollowUp ? (
+        <div className="mt-6 rounded-2xl border border-clay bg-white p-4">
+          {!followOpen ? (
+            <button
+              type="button"
+              className="w-full text-left text-[11px] font-medium uppercase tracking-[0.14em] text-ink/45 hover:text-ink"
+              onClick={() => setFollowOpen(true)}
+            >
+              + Ask something about this card
             </button>
-            <button className="btn btn-line btn-block" style={{ marginTop: 8 }} onClick={copyLink}>
-              {copied ? <CheckIcon width={17} height={17} /> : <CopyIcon width={17} height={17} />}
-              {copied ? "Link copied" : "Copy link"}
+          ) : (
+            <div>
+              <textarea
+                autoFocus
+                rows={2}
+                value={followText}
+                onChange={(e) => setFollowText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    submitFollow();
+                  }
+                }}
+                placeholder="What does this mean for me right now?"
+                className="w-full resize-none border-none bg-transparent p-0 text-sm font-light leading-relaxed placeholder:text-ink/30 focus:outline-none"
+              />
+              <div className="mt-3 flex items-center justify-end gap-3 border-t border-clay/60 pt-3">
+                <button
+                  type="button"
+                  className="text-[10px] font-medium uppercase tracking-[0.16em] text-ink/40 hover:text-ink"
+                  onClick={() => {
+                    setFollowOpen(false);
+                    setFollowText("");
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={busy || !followText.trim()}
+                  onClick={submitFollow}
+                  className="rounded-full bg-ink px-4 py-2 text-[11px] font-medium text-canvas hover:bg-gold hover:text-ink disabled:opacity-40"
+                >
+                  {busy ? "Drawing…" : "Ask"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Send a Spark sheet (PRD §4.6) */}
+      {sparkOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 backdrop-blur-sm"
+          onClick={() => setSparkOpen(false)}
+        >
+          <div
+            className="dh-sheet w-full max-w-md rounded-t-3xl bg-canvas p-8"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-center text-[10px] uppercase tracking-[0.22em] text-ink/40">
+              Send a Spark
+            </p>
+            <h3 className="mt-2 text-center font-serif text-2xl italic">Pass the light on.</h3>
+            <p className="mx-auto mt-2 max-w-[28ch] text-center text-sm font-light text-ink/60">
+              Share this card with someone. They’ll open a little page — no app needed — with a
+              nudge to draw their own.
+            </p>
+            <div className="mx-auto mt-5 w-2/3">
+              <CardView card={card} />
+            </div>
+            <div className="mt-5 rounded-2xl border border-clay bg-white p-4">
+              <p className="font-serif text-[13px] italic text-gold">Add a note (optional)</p>
+              <textarea
+                rows={2}
+                value={note}
+                maxLength={240}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Saw this and thought of you. Take a breath. xx"
+                className="mt-1 w-full resize-none border-none bg-transparent p-0 text-sm font-light leading-relaxed placeholder:text-ink/30 focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={share}
+              className="mt-5 block w-full rounded-full bg-ink py-4 text-xs font-semibold uppercase tracking-[0.2em] text-canvas hover:bg-gold hover:text-ink"
+            >
+              Share “{sparkText}”
+            </button>
+            <button
+              type="button"
+              onClick={copy}
+              className="mt-3 block w-full text-[11px] font-medium uppercase tracking-[0.16em] text-ink/50 hover:text-ink"
+            >
+              {copied ? "Link copied ✓" : "Copy link instead"}
             </button>
           </div>
         </div>

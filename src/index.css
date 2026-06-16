@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  background: #fdfbf7;
+  color: #3c3836;
+  font-family: Outfit, system-ui, sans-serif;
+}
+
+/* Card wash backgrounds — copied verbatim from the prototype. */
+.wash {
+  background:
+    radial-gradient(120% 80% at 20% 10%, rgba(212, 163, 115, 0.55), transparent 60%),
+    radial-gradient(100% 80% at 90% 90%, rgba(139, 148, 116, 0.45), transparent 60%),
+    radial-gradient(100% 80% at 50% 50%, rgba(233, 224, 210, 0.8), #f3ead9);
+}
+.wash-1 {
+  background:
+    radial-gradient(120% 80% at 80% 20%, rgba(160, 180, 200, 0.55), transparent 60%),
+    radial-gradient(100% 80% at 10% 90%, rgba(212, 163, 115, 0.35), transparent 60%),
+    radial-gradient(100% 80% at 50% 50%, rgba(230, 232, 235, 0.8), #e9ecef);
+}
+.wash-2 {
+  background:
+    radial-gradient(120% 80% at 30% 80%, rgba(196, 128, 98, 0.55), transparent 60%),
+    radial-gradient(100% 80% at 80% 10%, rgba(233, 224, 210, 0.6), transparent 60%),
+    radial-gradient(100% 80% at 50% 50%, rgba(240, 220, 205, 0.8), #efd9c8);
+}
+.wash-3 {
+  background:
+    radial-gradient(120% 80% at 20% 10%, rgba(139, 148, 116, 0.55), transparent 60%),
+    radial-gradient(100% 80% at 90% 90%, rgba(212, 163, 115, 0.35), transparent 60%),
+    radial-gradient(100% 80% at 50% 50%, rgba(225, 230, 215, 0.8), #dbe2d0);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Hide scrollbars on the mobile-framed app without disabling scroll. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes dh-rise {
+  from {
+    transform: translateY(10px);
+    opacity: 0;
+  }
+}
+.dh-rise {
+  animation: dh-rise 0.45s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+@keyframes dh-sheet {
+  from {
+    transform: translateY(24px);
+  }
+}
+.dh-sheet {
+  animation: dh-sheet 0.24s ease;
+}
+.dh-spin {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(60, 56, 54, 0.18);
+  border-top-color: #d4a373;
+  animation: dh-rot 0.7s linear infinite;
+}
+@keyframes dh-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,8 +1,8 @@
-export async function drawCard({ mode = "input", input = "", previousCard = null }) {
+export async function drawCard({ intent, input = "", previous = null }) {
   const res = await fetch("/api/card", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ mode, input, previousCard }),
+    body: JSON.stringify({ intent, input, previous }),
   });
   const data = await res.json();
   if (!res.ok) {

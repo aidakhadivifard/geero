@@ -1,71 +1,69 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { detectCrisis, crisisResponse } from "./safety.js";
+import { classifyIntent } from "./classify.js";
 
-// The illustration themes the AI may choose from. These map 1:1 to the SVG
-// library in src/illustrations/. To add a DALL·E-generated image later, add the
-// theme here and a renderer in the frontend manifest — nothing else changes.
-export const THEMES = [
-  "open_door",
-  "sunrise",
-  "path",
-  "mountain",
-  "moon",
-  "water",
-  "tree",
-  "bird",
-  "anchor",
-  "bridge",
-  "star",
-  "flame",
-];
+// NOTE: the brief requested `claude-sonnet-4-20250514`, but that exact model is
+// deprecated and scheduled to retire 2026-06-15 — an app on it would break within
+// hours. `claude-sonnet-4-6` is Anthropic's current Sonnet and the official
+// drop-in replacement (same family, same API). Change this one constant to swap.
+const MODEL = "claude-sonnet-4-6";
 
-const MODEL = "claude-opus-4-8";
+const SYSTEM_PROMPT = `You are the writer behind "Dawnhalo", a daily affirmation & oracle-card app. Every response is presented to the user as a single quiet "card", never a chat message.
 
-const SYSTEM_PROMPT = `You are the voice behind "Dawnhalo", a daily affirmation & oracle-card app. Every response you write is presented to the user as a beautifully illustrated card — never a chat bubble.
-
-WHO YOU ARE
-- Warm, confident, a little mystical — like a grounded friend who happens to read cards.
-- NOT childish, NOT religious, NOT heavy occult/witchy, NOT a clingy AI companion.
+VOICE
+- Warm, confident, a little mystical — like a grounded friend with a gift for perspective.
+- NOT childish, NOT religious, NOT heavy occult/witchy, NOT an AI companion.
+- Literary and spare. Second person. Present tense. No lists, no emoji, no headings.
 - Core promise: "You're doing better than you think. Here's a little light for your next step."
 
-HARD RULES
-1. Card-first: output a card name, a short main message, and one extra sentence of context.
-2. The card name is 1–4 words, evocative and concrete (e.g. "The Open Door", "Heavy Coat", "Low Tide", "The First Light"). Never generic ("Card", "Affirmation").
-3. Message: 1–3 short sentences. Speak directly to the person. No lists, no headings, no emoji spam (at most one tasteful emoji, usually none).
-4. Validate before reframe: if the input describes a hard feeling or situation, acknowledge the feeling honestly FIRST, then offer a grounded reframe or next step. Never jump to forced positivity. Never dismiss.
-5. No appearance focus: even if the person mentions their looks, redirect gently to how they feel or what their day needs — never comment on or affirm physical appearance.
-6. Questions get guidance-style framing: respond to the actual question with grounded, non-deterministic encouragement (you don't predict the future; you offer perspective and a next step).
-7. Keep it short. Seconds to read, not minutes.
+A CARD = three parts:
+- "opener": ONE sentence — a warm, intuitive "reading" opener, like a reader leaning in to read the energy of the card or the person's situation. It appears (in italic) above the title. It must feel personal and present, never generic or robotic, never theatrical or over-the-top. Vary it naturally — never reuse the same phrasing. One sentence only.
+    · Daily card, e.g.: "I'm reading the energy of today's card for you…" / "This card has something specific to say to you today…"
+    · Question card, e.g.: "Let me read what this card is saying about your question…" / "I'm drawing the energy around what you're asking…"
+    · Feeling card, e.g.: "Let me sit with what you're carrying for a moment…" / "I'm reading the energy of what you just shared…"
+    · Follow-up, e.g.: "Let me look a little deeper into this for you…"
+- "title": one short, evocative line — the perspective itself (roughly 6–18 words). The heart of the card. Concrete and a little poetic, e.g. "Tired is a real weather. Not a failing."
+- "body": 1–2 short sentences that ground or extend the title. Gentle, specific, never a lecture.
 
-ILLUSTRATION
-- Choose exactly one "theme" from the allowed list that matches the card's mood:
-  open_door (new beginnings, opportunity), sunrise (hope, fresh start), path (direction, journey),
-  mountain (challenge, perspective, strength), moon (rest, intuition, night feelings),
-  water (emotion, flow, letting go), tree (growth, grounding, patience), bird (freedom, lightness, release),
-  anchor (stability, steadiness), bridge (transition, connection), star (guidance, hope, the long view),
-  flame (energy, courage, warmth).
-
-REMINDERS
-- Only when asked for a daily card: also provide 1–2 very short affirming "reminders for today" (notification-style, under ~10 words each). Otherwise return an empty array.
-
-You will be told the request type. Always answer in the required JSON shape.`;
+RULES
+1. Validate before reframe: for a hard feeling, acknowledge it honestly FIRST, then offer a grounded reframe. Never dismissive positivity.
+2. No appearance focus: even if they mention how they look, redirect to how they feel or what their day needs. Never affirm or comment on physical appearance.
+3. Loneliness / wanting to be noticed: if they feel unseen, unnoticed, lonely, or wish someone paid attention to them or found them desirable, affirm their worth and that they ARE seen — speaking AS the card, in your own voice. NEVER invent a person, character, or admirer who notices/wants/desires them, and never simulate a relationship.
+4. Questions: respond with grounded, non-deterministic guidance — perspective and a next step, not a prediction.
+5. Keep it short. Seconds to read.`;
 
 const CARD_SCHEMA = {
   type: "object",
   properties: {
-    cardName: { type: "string" },
-    message: { type: "string" },
-    context: { type: "string" },
-    theme: { type: "string", enum: THEMES },
-    kind: {
-      type: "string",
-      enum: ["daily", "guidance", "validation", "followup"],
-    },
-    reminders: { type: "array", items: { type: "string" } },
+    opener: { type: "string" },
+    title: { type: "string" },
+    body: { type: "string" },
   },
-  required: ["cardName", "message", "context", "theme", "kind", "reminders"],
+  required: ["opener", "title", "body"],
   additionalProperties: false,
 };
+
+// Safety-net openers used for fallback cards and if the model ever omits one.
+const OPENERS = {
+  daily: [
+    "I'm reading the energy of today's card for you…",
+    "This card has something specific to say to you today…",
+    "Let me see what today is quietly offering you…",
+  ],
+  ask: [
+    "Let me read what this card is saying about your question…",
+    "I'm drawing the energy around what you're asking…",
+  ],
+  feel: [
+    "Let me sit with what you're carrying for a moment…",
+    "I'm reading the energy of what you just shared…",
+  ],
+  follow: ["Let me look a little deeper into this for you…", "Let me read what's underneath that…"],
+};
+function openerFor(intent) {
+  const list = OPENERS[intent] || OPENERS.daily;
+  return list[Math.floor(Math.random() * list.length)];
+}
 
 let client = null;
 function getClient() {
@@ -73,104 +71,94 @@ function getClient() {
   if (!client) client = new Anthropic();
   return client;
 }
-
 export function hasApiKey() {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
-function buildUserPrompt({ mode, input, previousCard }) {
-  if (mode === "daily") {
-    return `Request type: DAILY CARD.
-Generate today's daily card — a general, uplifting card themed around encouragement for whatever the day holds (the user has not told you anything specific). Also include 1–2 "reminders for today". Set kind = "daily".`;
-  }
-  if (mode === "follow_up") {
-    return `Request type: FOLLOW-UP.
-The user already drew this card:
-  Name: ${previousCard?.cardName}
-  Message: ${previousCard?.message}
-  (theme: ${previousCard?.theme})
+function buildUserPrompt({ intent, input, previous }) {
+  if (intent === "daily")
+    return `Request: DAILY CARD. Write today's daily card — a general "morning perspective" of gentle encouragement (the user hasn't told you anything specific). Make it feel freshly written.`;
+  if (intent === "follow")
+    return `Request: FOLLOW-UP. The user already drew this card:
+  Title: "${previous?.title}"
+  Body: "${previous?.body}"
 They asked one follow-up: "${input}"
-Answer their follow-up directly, staying true to that card's spirit. You may keep the same card name and theme or shift slightly if it fits better. Set kind = "followup". reminders must be an empty array.`;
-  }
-  // mode === "input": let the model classify question vs feeling.
-  return `Request type: USER INPUT.
-The user wrote: "${input}"
-First silently decide whether this is a QUESTION (asking for guidance about a decision/outcome) or a FEELING/SITUATION (sharing how they feel or what's going on).
-- If a question: respond with guidance-style framing. Set kind = "guidance".
-- If a feeling/situation: validate the feeling first, then offer a grounded reframe. Set kind = "validation".
-reminders must be an empty array.`;
+Answer their follow-up directly, staying true to that card's spirit.`;
+  if (intent === "ask")
+    return `Request: QUESTION. The user asked: "${input}"
+Respond with guidance-style framing — perspective and a next step, not a prediction.`;
+  return `Request: FEELING. The user shared: "${input}"
+Validate the feeling first, then offer a grounded reframe. Follow the loneliness and no-appearance rules if relevant.`;
 }
 
-// curated local cards used only when DAWNHALO_ALLOW_FALLBACK=1 and no key is set
-const FALLBACK = {
-  daily: {
-    cardName: "The First Light",
-    message:
-      "You don't have to have it all figured out to begin. Today asks only for one honest step.",
-    context: "Let today be enough, exactly as it is.",
-    theme: "sunrise",
-    kind: "daily",
-    reminders: ["You've survived every hard day so far.", "Small is still forward."],
-  },
-  input: {
-    cardName: "Steady Ground",
-    message:
-      "Whatever you're carrying, you're allowed to set part of it down. You don't have to hold all of it at once.",
-    context: "Notice one thing that is already okay.",
-    theme: "anchor",
-    kind: "validation",
-    reminders: [],
-  },
-  follow_up: {
-    cardName: "Steady Ground",
-    message:
-      "Trust the next small step more than the whole staircase. You'll see further once you move.",
-    context: "You already know more than you think you do.",
-    theme: "path",
-    kind: "followup",
-    reminders: [],
-  },
+// Offline demo content (used only when DAWNHALO_ALLOW_FALLBACK=1 and no key),
+// mirroring the prototype so the demo looks identical to the loved design.
+const FALLBACK_DAILY = [
+  { title: "You don't have to carry the whole world today. Just the part you're standing on.", body: "Focus on the immediate. The small tasks. The breath in your lungs." },
+  { title: "The morning does not ask you to be ready. Only to arrive.", body: "Show up gently. The rest will meet you there." },
+  { title: "Something quiet is moving in your favor.", body: "You may not see it yet. Trust the slow shape of it." },
+  { title: "You are allowed to begin again, mid-week, mid-morning, mid-sentence.", body: "There is no rule that says you must finish what no longer fits." },
+];
+const FALLBACK_ASK = [
+  { title: "The answer is closer to you than you think.", body: "Notice where your body softens when you sit with the question. That direction is worth following." },
+  { title: "You are not being asked to know — only to choose.", body: "Pick the path that lets you stay honest with yourself, even if it's the harder one." },
+];
+const FALLBACK_FEEL = {
+  invisible: { title: "I see you.", body: "Even when the world is looking past you, your presence matters. Your softness is not a small thing." },
+  tired: { title: "Tired is a real weather. Not a failing.", body: "Today, do less than you think you should. The day will hold what you can give it." },
+  sad: { title: "What you're feeling is allowed to take up space.", body: "You don't have to fix it to be okay. It is moving, even when it feels still." },
+  default: { title: "Whatever you're carrying — set it down for a moment here.", body: "You don't have to name it perfectly. Just let yourself feel it without rushing through." },
 };
 
-// Robust JSON extraction: structured outputs return clean JSON, but this also
-// handles a model that wraps it in prose or ```json fences (belt and suspenders).
+function hash(s) {
+  let h = 0;
+  const str = String(s);
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function fallbackCard({ intent, input }) {
+  let base;
+  if (intent === "daily") base = FALLBACK_DAILY[hash(new Date().toISOString().slice(0, 10)) % FALLBACK_DAILY.length];
+  else if (intent === "ask" || intent === "follow") base = FALLBACK_ASK[hash(input || Date.now()) % FALLBACK_ASK.length];
+  else {
+    const lo = (input || "").toLowerCase();
+    if (/(invisible|unseen|no one|nobody|lonely|notice)/.test(lo)) base = FALLBACK_FEEL.invisible;
+    else if (/(tired|exhaust|drained)/.test(lo)) base = FALLBACK_FEEL.tired;
+    else if (/(sad|down|low|cry)/.test(lo)) base = FALLBACK_FEEL.sad;
+    else base = FALLBACK_FEEL.default;
+  }
+  return { ...base, opener: openerFor(intent) };
+}
+
 function parseCardJson(text) {
   try {
     return JSON.parse(text);
   } catch {
     /* fall through */
   }
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced) {
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) {
     try {
-      return JSON.parse(fenced[1]);
+      return JSON.parse(m[0]);
     } catch {
-      /* fall through */
-    }
-  }
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start >= 0 && end > start) {
-    try {
-      return JSON.parse(text.slice(start, end + 1));
-    } catch {
-      /* fall through */
+      /* ignore */
     }
   }
   return null;
 }
 
-export async function generateCard({ mode = "input", input = "", previousCard = null }) {
-  // Layer 1: deterministic safety gate (overrides everything).
-  if ((mode === "input" || mode === "follow_up") && detectCrisis(input)) {
-    return crisisResponse();
+export async function generateCard({ intent, input = "", previous = null }) {
+  if (intent !== "daily" && intent !== "ask" && intent !== "feel" && intent !== "follow") {
+    intent = classifyIntent(input);
   }
 
-  const anthropic = getClient();
+  // Layer 1: deterministic crisis gate, BEFORE any API call.
+  if (intent !== "daily" && detectCrisis(input)) return crisisResponse();
 
+  const anthropic = getClient();
   if (!anthropic) {
     if (process.env.DAWNHALO_ALLOW_FALLBACK === "1") {
-      return { ...FALLBACK[mode] || FALLBACK.input };
+      return { ...fallbackCard({ intent, input }), intent, fallback: true };
     }
     const err = new Error("missing_api_key");
     err.code = "missing_api_key";
@@ -179,31 +167,28 @@ export async function generateCard({ mode = "input", input = "", previousCard = 
 
   const response = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 1024,
+    max_tokens: 500,
     system: SYSTEM_PROMPT,
-    output_config: {
-      format: { type: "json_schema", schema: CARD_SCHEMA },
-    },
-    messages: [{ role: "user", content: buildUserPrompt({ mode, input, previousCard }) }],
+    output_config: { format: { type: "json_schema", schema: CARD_SCHEMA } },
+    messages: [{ role: "user", content: buildUserPrompt({ intent, input, previous }) }],
   });
 
-  // Layer 2: trust the structured-output JSON, but re-check for crisis flags the
-  // model may have surfaced in free text, just in case.
   const text = response.content.find((b) => b.type === "text")?.text ?? "{}";
   const card = parseCardJson(text);
-  if (!card) {
+  if (!card || !card.title || !card.body) {
     const e = new Error("bad_model_output");
     e.code = "bad_model_output";
     throw e;
   }
 
-  if (detectCrisis(`${card.cardName} ${card.message} ${card.context}`)) {
-    return crisisResponse();
-  }
+  // Layer 2: re-check the model's output for crisis language, just in case.
+  if (detectCrisis(`${card.title} ${card.body}`)) return crisisResponse();
 
-  // normalize
-  card.isCrisis = false;
-  if (!Array.isArray(card.reminders)) card.reminders = [];
-  if (!THEMES.includes(card.theme)) card.theme = "sunrise";
-  return card;
+  return {
+    opener: card.opener || openerFor(intent),
+    title: card.title,
+    body: card.body,
+    intent,
+    isCrisis: false,
+  };
 }
