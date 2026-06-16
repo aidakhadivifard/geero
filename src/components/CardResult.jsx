@@ -16,6 +16,7 @@ export default function CardResult({
 }) {
   const [saved, setSaved] = useState(isSaved(card.id));
   const [sparkOpen, setSparkOpen] = useState(false);
+  const [note, setNote] = useState("");
   const [followOpen, setFollowOpen] = useState(false);
   const [followText, setFollowText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,8 +41,8 @@ export default function CardResult({
     }
   }
 
-  const sparkUrl = `${location.origin}/spark?d=${encodeSpark(card)}`;
-  const sparkText = "Someone thought of you today \u{1F4AB}";
+  const sparkUrl = `${location.origin}/spark?d=${encodeSpark(card, note)}`;
+  const sparkText = note.trim() || "Someone was thinking of you today ✦";
   async function share() {
     if (navigator.share) {
       try {
@@ -181,10 +182,21 @@ export default function CardResult({
             <div className="mx-auto mt-5 w-2/3">
               <CardView card={card} />
             </div>
+            <div className="mt-5 rounded-2xl border border-clay bg-white p-4">
+              <p className="font-serif text-[13px] italic text-gold">Add a note (optional)</p>
+              <textarea
+                rows={2}
+                value={note}
+                maxLength={240}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Saw this and thought of you. Take a breath. xx"
+                className="mt-1 w-full resize-none border-none bg-transparent p-0 text-sm font-light leading-relaxed placeholder:text-ink/30 focus:outline-none"
+              />
+            </div>
             <button
               type="button"
               onClick={share}
-              className="mt-6 block w-full rounded-full bg-ink py-4 text-xs font-semibold uppercase tracking-[0.2em] text-canvas hover:bg-gold hover:text-ink"
+              className="mt-5 block w-full rounded-full bg-ink py-4 text-xs font-semibold uppercase tracking-[0.2em] text-canvas hover:bg-gold hover:text-ink"
             >
               Share “{sparkText}”
             </button>

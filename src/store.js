@@ -142,8 +142,11 @@ export function clearAllData() {
 }
 
 // ---- Send a Spark codec (PRD §4.6 — card travels in the URL, no backend) ----
-export function encodeSpark(card) {
+// Optionally carries a short personal note from the sender.
+export function encodeSpark(card, note = "") {
   const slim = { t: card.title, b: card.body, w: hash(card.id || card.title) % WASHES.length };
+  const n = String(note || "").trim().slice(0, 240);
+  if (n) slim.n = n;
   const b64 = btoa(unescape(encodeURIComponent(JSON.stringify(slim))))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
@@ -155,7 +158,12 @@ export function decodeSpark(b64) {
     const pad = String(b64).replace(/-/g, "+").replace(/_/g, "/");
     const s = JSON.parse(decodeURIComponent(escape(atob(pad))));
     if (!s || typeof s.t !== "string") return null;
-    return { title: s.t, body: s.b || "", wash: WASHES[s.w] || "wash" };
+    return {
+      title: s.t,
+      body: s.b || "",
+      wash: WASHES[s.w] || "wash",
+      note: typeof s.n === "string" ? s.n : "",
+    };
   } catch {
     return null;
   }

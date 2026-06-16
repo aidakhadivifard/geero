@@ -106,6 +106,12 @@ describe("Send a Spark codec (build order #6 / §4.6)", () => {
     expect(d.body).toBe(card.body);
     expect(["wash", "wash-1", "wash-2", "wash-3"]).toContain(d.wash);
   });
+  it("carries an optional personal note (capped)", () => {
+    const card = { id: "c9", title: "T", body: "B" };
+    expect(decodeSpark(encodeSpark(card)).note).toBe("");
+    expect(decodeSpark(encodeSpark(card, "thought of you xx")).note).toBe("thought of you xx");
+    expect(decodeSpark(encodeSpark(card, "z".repeat(500))).note.length).toBeLessThanOrEqual(240);
+  });
   it("handles unicode and rejects garbage", () => {
     expect(decodeSpark(encodeSpark({ id: "u", title: "Café ✦ résumé 🌙", body: "" })).title).toBe("Café ✦ résumé 🌙");
     expect(decodeSpark("!!!")).toBeNull();
